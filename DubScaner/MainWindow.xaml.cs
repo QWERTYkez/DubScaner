@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -18,6 +19,9 @@ namespace DubScaner
             InitializeComponent();
 
             Title = "DubScaner v0.8";
+
+            Items = new ObservableCollection<ListBoxItem>();
+            FilesList.ItemsSource = Items;
         }
 
         string Path;
@@ -37,7 +41,7 @@ namespace DubScaner
             Process.Start();
         }
 
-        List<ListBoxItem> Items;
+        ObservableCollection<ListBoxItem> Items;
         private void Scan()
         {
             var name = Thread.CurrentThread.Name;
@@ -79,11 +83,9 @@ namespace DubScaner
             }
             #endregion
 
-            Items = new List<ListBoxItem>();
-
             Dispatcher.Invoke(() => 
             {
-                FilesList.ItemsSource = null;
+                Items.Clear();
                 StatusLB.Content = "Сканирование каталогов";
             });
 
@@ -96,6 +98,7 @@ namespace DubScaner
 
             Dispatcher.Invoke(() =>
             {
+                Items.Clear();
                 StatusLB.Content = "Составление списка";
                 InfoLB1.Content = "";
                 InfoLB2.Content = "";
@@ -109,7 +112,7 @@ namespace DubScaner
                     Items.Add(new ListBoxItem { Content = $"-- {gfl[i].Key} --" });
                 });
 
-                foreach (var f in gfl[i])
+                foreach (var f in gfl[i].OrderBy(f => f.LastWriteTime))
                 {
                     double L = f.Length;
                     string T = "b";
@@ -124,7 +127,7 @@ namespace DubScaner
                         var LBI = new ListBoxItem
                         {
                             Tag = f,
-                            Content = $"{L} {T}  ->  {f.FullName.Replace(f.Name, "")}"
+                            Content = $"{f.LastWriteTime:yy.MM.dd HH:mm} | {L} {T}  ->  {f.FullName.Replace(f.Name, "")}"
                         };
                         LBI.MouseDoubleClick += LBI_MouseDoubleClick;
                         LBI.KeyDown += LBI_KeyDown;
@@ -143,7 +146,6 @@ namespace DubScaner
 
             Dispatcher.Invoke(() => 
             {
-                FilesList.ItemsSource = Items;
                 StatusLB.Content = "Sucessful!!!";
                 InfoLB1.Content = $"Found {gfl.Count()} groups of duplicates";
                 InfoLB2.Content = ab.ToString();
@@ -180,20 +182,26 @@ namespace DubScaner
 
             public int n;
             public DirectoryInfo[] dirs;
+
+            public DirectoryInfo Ndir { get => dirs[n]; }
         }
         private void ScanDirectories(DirectoryInfo BaseDir)
         {
             var Tree = new List<Para> { new Para(BaseDir) };
+            Dispatcher.Invoke(() => Items.Add(new ListBoxItem()));
 
         Next:
 
             try
             {
-                while (Tree[0].dirs[Tree[0].n].GetDirectories().Length > 0)
+                while (Tree[0].Ndir.GetDirectories().Length > 0)
                 {
-                    Tree.Insert(0, new Para(Tree[0].dirs[Tree[0].n]));
+                    Tree.Insert(0, new Para(Tree[0].Ndir));
+                    
                     Dispatcher.Invoke(() =>
                     {
+                        Items[0] = new ListBoxItem { Content = Tree[0].Ndir.FullName };
+                        
                         InfoLB1.Content = $"Глубина - {Tree.Count}";
                         InfoLB2.Content = $"Ширина - {0} / {Tree[0].dirs.Length}";
                     });
@@ -201,23 +209,12 @@ namespace DubScaner
             }
             catch (UnauthorizedAccessException e)
             {
-                Tree[0].n++;
-                Dispatcher.Invoke(() =>
-                {
-                    InfoLB2.Content = $"Ширина - {Tree[0].n} / {Tree[0].dirs.Length}";
-                });
-                while (Tree[0].dirs.Length == Tree[0].n)
-                {
-                    Tree.RemoveAt(0);
-                    if (Tree.Count > 0) Tree[0].n++;
-                    else return;
-                }
-                goto Next;
+                goto Switch;
             }
 
             try
             {
-                AllFiles.AddRange(Tree[0].dirs[Tree[0].n].EnumerateFiles().Where(f => f.Length > Size));
+                AllFiles.AddRange(Tree[0].Ndir.EnumerateFiles().Where(f => f.Length > Size));
                 Dispatcher.Invoke(() =>
                 {
                     InfoLB3.Content = AllFiles.Count;
@@ -233,6 +230,7 @@ namespace DubScaner
                 });
             }
 
+        Switch:
             Tree[0].n++;
             Dispatcher.Invoke(() =>
             {
@@ -244,19 +242,14 @@ namespace DubScaner
                 if (Tree.Count > 0) Tree[0].n++;
                 else return;
             }
-            goto Next;
-        }
-
-        class DirInfo
-        {
-            public DirInfo(DirectoryInfo dir)
+            Dispatcher.Invoke(() =>
             {
-                Files = dir.EnumerateFiles();
-                Count = Files.Count();
-            }
+                Items[0] = new ListBoxItem { Content = Tree[0].Ndir.FullName };
 
-            public IEnumerable<FileInfo> Files;
-            public int Count;
+                InfoLB1.Content = $"Глубина - {Tree.Count}";
+                InfoLB2.Content = $"Ширина - {Tree[0].n} / {Tree[0].dirs.Length}";
+            });
+            goto Next;
         }
 
         private Task ShowError()
